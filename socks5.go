@@ -332,14 +332,14 @@ func HandelSock5Client(ctx context.Context, conn io.ReadWriteCloser, addr string
 
 	msg := make([]byte, 3)
 	msg[0] = VERSION5
-	msg[1] = uint8(1)
-	msg[2] = NOAUTH
+	msg[1] = NOAUTH
+	msg[2] = 1
 
 	_, err := conn.Write(msg)
 	if err != nil {
 		return nil, errors.WithStack(err)
 	}
-	log.Printf("send msg %s", string(msg))
+	log.Printf("send msg %v", msg)
 	/**
 	+----+--------+
 	|VER | METHOD |
@@ -442,6 +442,6 @@ func queryMsg(w io.Writer, cmd uint8, raddr string, port int) error {
 	msg[4+bodyLen] = byte(addrPort >> 8)
 	msg[4+bodyLen+1] = byte(addrPort & 0xff)
 	_, err := w.Write(msg)
-	log.Printf("send msg %s", string(msg))
+	log.Printf("send msg %v", msg)
 	return err
 }
