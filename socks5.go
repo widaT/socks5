@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"github.com/pingcap/errors"
 	"io"
+	"log"
 	"net"
 	"strconv"
 	"strings"
@@ -338,7 +339,7 @@ func HandelSock5Client(ctx context.Context, conn io.ReadWriteCloser, addr string
 	if err != nil {
 		return nil, errors.WithStack(err)
 	}
-
+	log.Printf("send msg %s", string(msg))
 	/**
 	+----+--------+
 	|VER | METHOD |
@@ -379,6 +380,11 @@ func HandelSock5Client(ctx context.Context, conn io.ReadWriteCloser, addr string
 	if header[0] != VERSION5 {
 		return nil, errors.New(fmt.Sprintf("Unsupported command version: %v", header[0]))
 	}
+
+	if header[1] != SUCCEEDED {
+		return nil, errors.New(fmt.Sprintf("socks5 query err REP  error number: %v", header[1]))
+	}
+
 	//bnd address
 	bnd, err := readAddr(conn)
 	if err != nil {
@@ -436,5 +442,6 @@ func queryMsg(w io.Writer, cmd uint8, raddr string, port int) error {
 	msg[4+bodyLen] = byte(addrPort >> 8)
 	msg[4+bodyLen+1] = byte(addrPort & 0xff)
 	_, err := w.Write(msg)
+	log.Printf("send msg %s", string(msg))
 	return err
 }
