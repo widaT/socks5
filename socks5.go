@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"github.com/pingcap/errors"
 	"io"
-	"log"
 	"net"
 	"strconv"
 	"strings"
@@ -99,60 +98,54 @@ func newCommand(bufConn io.Reader) (*Command, error) {
 	return cmd, nil
 }
 
-func HandleSock5(ctx context.Context, conn io.ReadWriteCloser) error {
-	for {
-		buf := bufio.NewReader(conn)
-		/**
-		+----+----------+----------+
-		|VER | NMETHODS | METHODS  |
-		+----+----------+----------+
-		| 1  |    1     | 1 to 255 |
-		+----+----------+----------+
-		*/
+func HandleSocks5(ctx context.Context, conn io.ReadWriteCloser) error {
+	buf := bufio.NewReader(conn)
+	/**
+	+----+----------+----------+
+	|VER | NMETHODS | METHODS  |
+	+----+----------+----------+
+	| 1  |    1     | 1 to 255 |
+	+----+----------+----------+
+	*/
 
-		version := []byte{0}
-		if _, err := buf.Read(version); err != nil {
-			return errors.WithStack(err)
-		}
-
-		if version[0] != VERSION5 {
-			return fmt.Errorf("SOCKS version not match")
-		}
-
-		methodCount := []byte{0}
-		if _, err := buf.Read(methodCount); err != nil {
-			return fmt.Errorf("read methodCount err")
-		}
-
-		numMethods := int(methodCount[0])
-		methods := make([]byte, numMethods)
-		_, err := io.ReadFull(buf, methods)
-		if err != nil {
-			return errors.WithStack(err)
-		}
-
-		/**
-		+----+--------+
-		|VER | METHOD |
-		+----+--------+
-		| 1  |   1    |
-		+----+--------+
-		*/
-
-		//force use noauth
-		_, err = conn.Write([]byte{VERSION5, NOAUTH})
-		if err != nil {
-			return errors.WithStack(err)
-		}
-		cmd, err := newCommand(buf)
-		if err != nil {
-			return errors.WithStack(err)
-		}
-
-		if err := handleCmd(ctx, cmd, conn); err != nil {
-			return errors.WithStack(err)
-		}
+	header := make([]byte, 2)
+	if _, err := io.ReadFull(buf, header); err != nil {
+		return errors.WithStack(err)
 	}
+
+	if header[0] != VERSION5 {
+		return fmt.Errorf("SOCKS version not match")
+	}
+
+	numMethods := int(header[1])
+	methods := make([]byte, numMethods)
+	_, err := io.ReadFull(buf, methods)
+	if err != nil {
+		return errors.WithStack(err)
+	}
+
+	/**
+	+----+--------+
+	|VER | METHOD |
+	+----+--------+
+	| 1  |   1    |
+	+----+--------+
+	*/
+
+	//force use noauth
+	_, err = conn.Write([]byte{VERSION5, NOAUTH})
+	if err != nil {
+		return errors.WithStack(err)
+	}
+	cmd, err := newCommand(buf)
+	if err != nil {
+		return errors.WithStack(err)
+	}
+
+	if err := handleCmd(ctx, cmd, conn); err != nil {
+		return errors.WithStack(err)
+	}
+	return nil
 }
 
 func handleCmd(ctx context.Context, cmd *Command, conn io.ReadWriteCloser) error {
@@ -321,7 +314,7 @@ func Copy(dst io.ReadWriteCloser, src io.Reader, errCh chan error) {
 	errCh <- err
 }
 
-func HandelSock5Client(ctx context.Context, conn io.ReadWriteCloser, addr string, port int) (*Addr, error) {
+func HandleSocks5Client(ctx context.Context, conn io.ReadWriteCloser, addr string, port int) (*Addr, error) {
 	/**
 	+----+----------+----------+
 	|VER | NMETHODS | METHODS  |
@@ -329,17 +322,16 @@ func HandelSock5Client(ctx context.Context, conn io.ReadWriteCloser, addr string
 	| 1  |    1     | 1 to 255 |
 	+----+----------+----------+
 	*/
-
-	msg := make([]byte, 3)
+	msg := make([]byte, 4)
 	msg[0] = VERSION5
-	msg[1] = NOAUTH
-	msg[2] = 1
+	msg[1] = 2
+	msg[2] = 0
+	msg[3] = 1
 
 	_, err := conn.Write(msg)
 	if err != nil {
 		return nil, errors.WithStack(err)
 	}
-	log.Printf("send msg %v", msg)
 	/**
 	+----+--------+
 	|VER | METHOD |
@@ -348,19 +340,15 @@ func HandelSock5Client(ctx context.Context, conn io.ReadWriteCloser, addr string
 	+----+--------+
 	*/
 
-	version := []byte{0}
-	if _, err := conn.Read(version); err != nil {
+	msg = make([]byte, 2)
+	if _, err := io.ReadFull(conn, msg); err != nil {
 		return nil, errors.WithStack(err)
 	}
 
-	if version[0] != VERSION5 {
+	if msg[0] != VERSION5 {
 		return nil, fmt.Errorf("SOCKS version not match")
 	}
-
-	method := []byte{0}
-	if _, err := conn.Read(method); err != nil {
-		return nil, fmt.Errorf("read methodCount err")
-	}
+	//msg[1] ignore
 
 	if err := queryMsg(conn, CONNECTCMD, addr, port); err != nil {
 		return nil, errors.WithStack(err)
@@ -373,7 +361,7 @@ func HandelSock5Client(ctx context.Context, conn io.ReadWriteCloser, addr string
 	| 1  |  1  | X'00' |  1   | Variable |    2     |
 	+----+-----+-------+------+----------+----------+
 	*/
-	header := []byte{0, 0, 0}
+	header := make([]byte, 3)
 	if _, err := io.ReadFull(conn, header); err != nil {
 		return nil, errors.WithStack(err)
 	}
@@ -442,6 +430,5 @@ func queryMsg(w io.Writer, cmd uint8, raddr string, port int) error {
 	msg[4+bodyLen] = byte(addrPort >> 8)
 	msg[4+bodyLen+1] = byte(addrPort & 0xff)
 	_, err := w.Write(msg)
-	log.Printf("send msg %v", msg)
 	return err
 }
