@@ -1,7 +1,6 @@
 package socks5
 
 import (
-	"bufio"
 	"context"
 	"fmt"
 	"github.com/pingcap/errors"
@@ -62,10 +61,10 @@ type Command struct {
 	RemoteAddr   *Addr
 	DestAddr     *Addr
 	RealDestAddr *Addr
-	bufConn      io.Reader
+	reader       io.Reader
 }
 
-func newCommand(bufConn io.Reader) (*Command, error) {
+func newCommand(reader io.Reader) (*Command, error) {
 	/**
 	+----+-----+-------+------+----------+----------+
 	|VER | CMD |  RSV  | ATYP | DST.ADDR | DST.PORT |
@@ -74,7 +73,7 @@ func newCommand(bufConn io.Reader) (*Command, error) {
 	+----+-----+-------+------+----------+----------+
 	*/
 	header := []byte{0, 0, 0}
-	if _, err := io.ReadFull(bufConn, header); err != nil {
+	if _, err := io.ReadFull(reader, header); err != nil {
 		return nil, errors.WithStack(err)
 	}
 
@@ -83,7 +82,7 @@ func newCommand(bufConn io.Reader) (*Command, error) {
 	}
 
 	//dst address
-	dest, err := readAddr(bufConn)
+	dest, err := readAddr(reader)
 	if err != nil {
 		return nil, err
 	}
@@ -92,14 +91,13 @@ func newCommand(bufConn io.Reader) (*Command, error) {
 		Version:  VERSION5,
 		Command:  header[1],
 		DestAddr: dest,
-		bufConn:  bufConn,
+		reader:   reader,
 	}
 
 	return cmd, nil
 }
 
 func HandleSocks5(ctx context.Context, conn io.ReadWriteCloser) error {
-	buf := bufio.NewReader(conn)
 	/**
 	+----+----------+----------+
 	|VER | NMETHODS | METHODS  |
@@ -109,7 +107,7 @@ func HandleSocks5(ctx context.Context, conn io.ReadWriteCloser) error {
 	*/
 
 	header := make([]byte, 2)
-	if _, err := io.ReadFull(buf, header); err != nil {
+	if _, err := io.ReadFull(conn, header); err != nil {
 		return errors.WithStack(err)
 	}
 
@@ -119,7 +117,7 @@ func HandleSocks5(ctx context.Context, conn io.ReadWriteCloser) error {
 
 	numMethods := int(header[1])
 	methods := make([]byte, numMethods)
-	_, err := io.ReadFull(buf, methods)
+	_, err := io.ReadFull(conn, methods)
 	if err != nil {
 		return errors.WithStack(err)
 	}
@@ -137,7 +135,7 @@ func HandleSocks5(ctx context.Context, conn io.ReadWriteCloser) error {
 	if err != nil {
 		return errors.WithStack(err)
 	}
-	cmd, err := newCommand(buf)
+	cmd, err := newCommand(conn)
 	if err != nil {
 		return errors.WithStack(err)
 	}
@@ -197,7 +195,7 @@ func handleConn(conn io.ReadWriteCloser, req *Command) error {
 	}
 
 	errCh := make(chan error, 2)
-	go Copy(target, req.bufConn, errCh)
+	go Copy(target, req.reader, errCh)
 	go Copy(conn, target, errCh)
 
 	for i := 0; i < 2; i++ {
